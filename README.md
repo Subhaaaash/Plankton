@@ -93,7 +93,7 @@ Make sure git is installed:
 `sudo apt install git`
 
 Now, clone the Plankton repository:  
-`git clone https://www.github.com/Liquid-ai/Plankton.git`
+`git clone https://github.com/Subhaaaash/Plankton.git -b humble-development`
 
 At this point, you need to source 2 different files described below to configure ROS 2 and Gazebo environment variables: 
    - For ROS 2 variables
