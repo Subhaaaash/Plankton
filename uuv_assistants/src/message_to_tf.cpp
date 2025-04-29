@@ -28,7 +28,6 @@
 // The original code was modified to:
 // - be more consistent with other sensor plugins within uuv_simulator,
 // - adhere to Gazebo's coding standards.
-
 #include "rclcpp/rclcpp.hpp"
 #include <nav_msgs/msg/odometry.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
@@ -60,8 +59,9 @@ rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr g_pose_publisher;
 rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr g_euler_publisher;
 
 #ifndef TF2_MATRIX3x3_H
-  typedef btScalar tfScalar;
-  namespace tf { typedef btMatrix3x3 Matrix3x3; }
+  typedef tf2Scalar tfScalar;
+namespace tf { typedef tf2::Matrix3x3 Matrix3x3; }
+
 #endif
 
 void addTransform(std::vector<geometry_msgs::msg::TransformStamped>& transforms, const tf2::Stamped<tf2::Transform>& tf, std::string child_frame_id)
@@ -196,9 +196,8 @@ void imuCallback(sensor_msgs::msg::Imu::SharedPtr imu) {
 
 // TODO
   auto time_stamp = imu->header.stamp;
-  tf.stamp_ = tf2::TimePoint(
-    std::chrono::seconds(time_stamp.sec) +
-    std::chrono::nanoseconds(time_stamp.nanosec));
+  tf.stamp_ = tf2_ros::fromMsg(rclcpp::Clock().now());
+
 
   tf.frame_id_ = stripSlash(g_stabilized_frame_id);
   if (!g_child_frame_id.empty()) child_frame_id = g_child_frame_id;
