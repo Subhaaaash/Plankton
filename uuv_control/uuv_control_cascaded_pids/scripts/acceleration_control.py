@@ -45,9 +45,17 @@ class AccelerationControllerNode(Node):
         self.mass_inertial_matrix = numpy.zeros((6, 6))
 
         # ROS infrastructure
+        # Subscribe to cmd_accel topic to receive desired acceleration commands
+        # Messages are of type Accel and handled by accel_callback with queue size 10
         self.sub_accel = self.create_subscription(Accel, 'cmd_accel', self.accel_callback, 10)
+        
+        # Subscribe to cmd_force topic to receive desired force commands
+        # Messages are of type Accel and handled by force_callback with queue size 10 
         self.sub_force = self.create_subscription(Accel, 'cmd_force', self.force_callback, 10)
         
+        # Creates a ROS2 publisher that publishes Wrench messages to the thruster manager
+        # The Wrench messages contain force/torque commands for the thrusters
+        # Queue size of 1 means only the most recent message is kept if publishing faster than subscribers can process
         self.pub_gen_force = self.create_publisher(Wrench, 'thruster_manager/input', 1)
 
         self.get_logger().info(str(self.get_parameters(['/'])))
