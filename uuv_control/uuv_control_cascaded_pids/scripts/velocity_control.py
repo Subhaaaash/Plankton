@@ -23,10 +23,10 @@
 import numpy
 import rclpy
 from rclpy.node import Node
-from rcl_interfaces.msg import ParameterDescriptor
+from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 import geometry_msgs.msg as geometry_msgs
 from nav_msgs.msg import Odometry
-
+from geometry_msgs.msg import Accel
 # Modules included in this package
 from uuv_PID import PIDRegulator
 import tf_quaternion.transformations as transf
@@ -40,7 +40,6 @@ class VelocityControllerNode(Node):
         super().__init__(name, **kwargs)
 
         self.config = {}
-
         self.v_linear_des = numpy.zeros(3)
         self.v_angular_des = numpy.zeros(3)
 
@@ -62,14 +61,32 @@ class VelocityControllerNode(Node):
         self._declare_and_fill_map(
             "odom_vel_in_world", True, "Is odometry velocity supplied in world frame? (gazebo)", self.config)
         
-        self.set_parameters_callback(self.callback_params)
+        self.add_on_set_parameters_callback(self.callback_params)
         
         self.create_pids(self.config)
 
         # ROS infrastructure
-        self.sub_cmd_vel = self.create_subscription(geometry_msgs.Twist, 'cmd_vel', self.cmd_vel_callback, 10)
-        self.sub_odometry = self.create_subscription(Odometry, 'odom', self.odometry_callback, 10)
-        self.pub_cmd_accel = self.create_publisher( geometry_msgs.Accel, 'cmd_accel', 10)
+        self.sub_cmd_vel = self.create_subscription(
+            geometry_msgs.Twist, 
+            'cmd_vel', 
+            self.cmd_vel_callback, 
+            10
+        )
+        self.sub_odometry = self.create_subscription(
+            Odometry, 
+            'odom', 
+            self.odometry_callback, 
+            10
+        )
+        self.pub_cmd_accel = self.create_publisher(
+            geometry_msgs.Accel, 
+            'cmd_accel', 
+            10
+        )
+
+        self.get_logger().info('Velocity controller initialized')
+        self.get_logger().info('Subscribed to cmd_vel and odom topics')
+        self.get_logger().info('Publishing to cmd_accel topic')
 
     #==============================================================================
     def cmd_vel_callback(self, msg):
@@ -79,17 +96,21 @@ class VelocityControllerNode(Node):
         v_a = msg.angular
         self.v_linear_des = numpy.array([v_l.x, v_l.y, v_l.z])
         self.v_angular_des = numpy.array([v_a.x, v_a.y, v_a.z])
+        self.get_logger().info(f'Received cmd_vel: linear={self.v_linear_des}, angular={self.v_angular_des}')
 
     #==============================================================================
     def odometry_callback(self, msg):
         """Handle updated measured velocity callback."""
         if not bool(self.config):
+            self.get_logger().warn('Configuration not loaded yet')
             return
 
         linear = msg.twist.twist.linear
         angular = msg.twist.twist.angular
         v_linear = numpy.array([linear.x, linear.y, linear.z])
         v_angular = numpy.array([angular.x, angular.y, angular.z])
+
+        self.get_logger().info(f'Current velocity: linear={v_linear}, angular={v_angular}')
 
         if self.config['odom_vel_in_world']:
             # This is a temp. workaround for gazebo's pos3d plugin not behaving properly:
@@ -101,6 +122,7 @@ class VelocityControllerNode(Node):
 
             v_linear = R_bw.dot(v_linear)
             v_angular = R_bw.dot(v_angular)
+            self.get_logger().info(f'Transformed velocity: linear={v_linear}, angular={v_angular}')
         
         # Compute compute control output:
         t = time_in_float_sec_from_msg(msg.header.stamp)
@@ -108,37 +130,51 @@ class VelocityControllerNode(Node):
         e_v_linear = (self.v_linear_des - v_linear)
         e_v_angular = (self.v_angular_des - v_angular)
         
+        self.get_logger().info(f'Velocity error: linear={e_v_linear}, angular={e_v_angular}')
+        
         a_linear = self.pid_linear.regulate(e_v_linear, t)
         a_angular = self.pid_angular.regulate(e_v_angular, t)
+
+        self.get_logger().info(f'Computed acceleration: linear={a_linear}, angular={a_angular}')
 
         # Convert and publish accel. command:
         cmd_accel = geometry_msgs.Accel()
         cmd_accel.linear = geometry_msgs.Vector3(x=a_linear[0], y=a_linear[1], z=a_linear[2])
         cmd_accel.angular = geometry_msgs.Vector3(x=a_angular[0], y=a_angular[1], z=a_angular[2])
+        
         self.pub_cmd_accel.publish(cmd_accel)
+        self.get_logger().info(f'Published cmd_accel: linear={a_linear}, angular={a_angular}')
 
     #==============================================================================
     def callback_params(self, data):
+        self.get_logger().info('Received parameter update')
         for parameter in data:
             self.config[parameter.name] = parameter.value
+            self.get_logger().info(f'Updated parameter {parameter.name} = {parameter.value}')
         
         # config has changed, reset PID controllers
         self.create_pids(self.config)
 
-        self.get_logger().warn("Parameters dynamically changed...")
+        self.get_logger().info("Parameters dynamically changed...")
         return SetParametersResult(successful=True)
 
     #==============================================================================
     def create_pids(self, config):
+        self.get_logger().info('Creating PID controllers with parameters:')
+        self.get_logger().info(f'Linear PID: p={config["linear_p"]}, i={config["linear_i"]}, d={config["linear_d"]}, sat={config["linear_sat"]}')
+        self.get_logger().info(f'Angular PID: p={config["angular_p"]}, i={config["angular_i"]}, d={config["angular_d"]}, sat={config["angular_sat"]}')
+        
         self.pid_linear = PIDRegulator(
             config['linear_p'], config['linear_i'], config['linear_d'], config['linear_sat'])
         self.pid_angular = PIDRegulator(
             config['angular_p'], config['angular_i'], config['angular_d'], config['angular_sat'])
+        self.get_logger().info('PID controllers created with new parameters')
 
     #==============================================================================
     def _declare_and_fill_map(self, key, default_value, description, map):
         param = self.declare_parameter(key, default_value, ParameterDescriptor(description=description))
         map[key] = param.value
+        self.get_logger().info(f'Declared parameter {key} = {param.value}')
 
 
 #==============================================================================
